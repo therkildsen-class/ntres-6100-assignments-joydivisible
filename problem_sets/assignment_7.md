@@ -1,0 +1,244 @@
+---
+title: "Assignment 7: Relational data plus revisiting data wrangling and visualization"
+format: gfm
+---
+
+## Load packages
+
+```{r label00, echo=TRUE, results='asis'}
+library(tidyverse)
+library(knitr)
+library(dslabs)
+```
+
+# Excercise: 2016 election result and polling
+
+For this exercise, we will explore the result of the 2016 US presidential election as well as the polling data. We will use the following three datasets in the ```dslabs``` package, and use ```join``` function to connect them together. As a reminder, you can use ```?``` to learn more about these datasets.
+
+```results_us_election_2016```: Election results (popular vote) and electoral college votes from the 2016 presidential election.
+
+```polls_us_election_2016```: Poll results from the 2016 presidential elections.
+
+```murders```: Gun murder data from FBI reports. It also contains the population of each state.
+
+We will also use this dataset to get the exact numbers of votes for question 3.
+
+
+#### Question 1. What is the relationship between the population size and the number of electoral votes each state has?
+
+**1a**. Use a join function to combine the ```murders``` dataset, which contains information on population size, and the ```results_us_election_2016``` dataset, which contains information on the number of electoral votes. Name this new dataset ```q_1a```, and show its first 6 rows.
+
+```{r label1, echo=TRUE, fig.width=6, fig.height=4}
+
+q_1a <- murders %>%
+  left_join(results_us_election_2016, by = "state")
+
+knitr::kable(head(q_1a))
+```
+
+
+
+#### **1b.** Add a new variable in the q_1a dataset to indicate which candidate won in each state, and remove the columns abb, region, and total. Name this new dataset q_1b, and show its first 6 rows.
+
+```{r label2, echo=TRUE, fig.width=6, fig.height=4}
+q_1b <- q_1a %>%
+  mutate(winner = ifelse(clinton > trump, "clinton", "trump")) %>%
+  select(-abb, -region, -total)
+
+knitr::kable(head(q_1b))
+```
+
+
+#### **1c.**  Using the ```q_1b``` dataset, plot the relationship between population size and number of electoral votes. Use color to indicate who won the state. Fit a straight line to the data, set its color to black, size to 0.1, and turn off its confidence interval.
+
+```{r label3, echo=TRUE, fig.width=6, fig.height=4}
+ggplot(q_1b, aes(x = population, y = electoral_votes, color = winner)) +
+  geom_point(size = 1, alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", linewidth = 0.1) +
+  labs(
+    title = "Population vs. Electoral Votes by State",
+    x = "Population",
+    y = "Electoral Votes",
+    color = "Winner"
+  ) +
+  theme_gray()
+```
+
+<br>
+
+## Question 2. Would the election result be any different if the number of electoral votes is exactly proportional to a state’s population size?
+
+#### **2a.** First, convert the ```q_1b``` dataset to longer format such that the ```population``` and ```electoral_votes``` columns are turned into rows as shown below. Name this new dataset ```q_2a```, and show its first 6 rows.
+
+```{r filter-dose-time, echo=TRUE, fig.width=6, fig.height=4}
+
+q_2a <- q_1b %>%
+  pivot_longer(
+    cols = c(population, electoral_votes),
+    names_to = "measure",
+    values_to = "value"
+  )
+
+knitr::kable(head(q_2a))
+
+```
+
+#### **2b.** Then, sum up the number of electoral votes and population size across all states for each candidate. Name this new dataset ```q_2b```, and print it as shown below.
+```{r label14, echo=TRUE, fig.width=6, fig.height=4}
+q_2b <- aggregate(value ~ winner + measure, data = q_2a, sum)
+q_2b <- q_2b %>% rename(metric = measure)
+q_2b <- q_2b[, c("metric", "winner", "value")]
+
+knitr::kable(q_2b)
+```
+
+#### **2c.** Use the ```q_2b``` dataset to contruct a bar plot to show the final electoral vote share under the scenarios of **1)** each state has the number of electoral votes that it currently has, and **2)** each state has the number of electoral votes that is exactly proportional to its population size. Here, assume that for each state, the winner will take all its electoral votes
+Note: only two Oceanian countries are included in this dataset, and ```geom_smooth()``` does not work with two data points, which is why they are excluded.
+
+*Hint: ```geom_col(position = "fill")``` might be helpful.*
+
+```{r label15, echo=TRUE, results='asis'}
+q_2c <- q_2b %>%
+  group_by(metric) %>%
+  mutate(share = value / sum(value))
+ggplot(q_2c, aes(x = metric, y = share, fill = winner)) +
+  geom_col(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    x = "metric",
+    y = "value",
+    fill = "winner"
+  ) +
+  theme_gray()
+```
+
+## Question 3. What if the election was determined by popular votes?
+
+#### **3a.** First, from this dataset on GitHub, calculate the number of popular votes each candidate received as shown below. Name this new dataset ```q_3a```, and print it.
+
+*Note: Vote counts are listed for several other candidates. Please combine the votes for all candidates other than Clinton and Trump into a single ```others``` category (as shown in the table below)
+
+Hint: ```pivot_longer()``` may be useful in here.*
+
+```{r label17, echo=TRUE, fig.width=6, fig.height=4}
+data <- read_csv("https://raw.githubusercontent.com/kshaffer/election2016/master/2016ElectionResultsByState.csv")
+
+q_3a <- data %>%
+  pivot_longer(
+    cols = c(clintonVotes, trumpVotes, johnsonVotes, steinVotes, mcmullinVotes, othersVotes),
+    names_to = "candidate",
+    values_to = "votes"
+  ) %>%
+  mutate(candidate = case_when(
+    candidate == "clintonVotes" ~ "clinton",
+    candidate == "trumpVotes" ~ "trump",
+    TRUE ~ "others"
+  )) %>%
+  group_by(candidate) %>%
+  summarize(value = sum(votes, na.rm = TRUE), .groups = "drop") %>%
+  mutate(metric = "popular_votes") %>% 
+  rename(winner = candidate) %>%
+  select(metric, winner, value)
+
+knitr::kable(q_3a)
+```
+#### **3b.** Combine the ```q_2b``` dataset with the ```q_3a``` dataset. Call this new dataset ```q_3b```, and print it as shown below.
+
+
+```{r label190, echo=TRUE, fig.width=6, fig.height=4}
+
+q_3b <- bind_rows(q_2b, q_3a) %>%
+  select(metric, winner, value)
+
+knitr::kable(q_3b)
+```
+<br>
+
+#### **3c.** Lastly, use the ```q_3b``` dataset to contruct a bar plot to show the final vote share under the scenarios of **1)** each state has the number of electoral votes that it currently has, **2)** each state has the number of electoral votes that is exactly proportional to its population size, and **3)** the election result is determined by the popular vote.
+
+```{r label19, echo=TRUE, results='asis'}
+ggplot(q_3b, aes(x = metric, y = value, fill = winner)) +
+  geom_col(position = "fill") +                
+  scale_y_continuous(labels = scales::percent) + 
+  labs(
+    x = "metric",
+    y = "value",
+    fill = "winner"
+  ) +
+  theme_gray()
+```
+
+<br>
+
+
+## Question 4. The election result in 2016 came as a huge surprise to many people, especially given that most polls predicted Clinton would win before the election. Where did the polls get wrong?
+
+#### **4a.** The polling data is stored in the data frame ```polls_us_election_2016```. For the sake of simplicity, we will only look at the data from a single poll for each state. Subset the polling data to include only the results from the pollster ```Ipsos```. Exclude national polls, and for each state, select the polling result with the ```enddate``` closest to the election day (i.e. those with the lastest end date). Keep only the columns ```state```, ```adjpoll_clinton```, and ```adjpoll_trump```. Save this new dataset as q_4a, and show its first 6 rows.
+
+*Note: You should have 47 rows in ```q_4a``` because only 47 states were polled at least once by ```Ipsos```. You don’t need to worry about the 3 missing states and DC.
+
+Hint: ```group_by()``` and ```slice_max()``` can be useful for this question. Check out the help file for ```slice_max()``` for more info.*
+
+
+```{r label20, echo=TRUE, fig.width=6, fig.height=4}
+q_4a <- polls_us_election_2016 %>%
+  filter(pollster == "Ipsos", state != "U.S.") %>%  
+  group_by(state) %>%
+  slice_max(order_by = enddate, n = 1) %>%
+  ungroup() %>%
+  select(state, adjpoll_clinton, adjpoll_trump)   
+
+knitr::kable(head(q_4a))
+```
+<br>
+
+#### **4b.** Combine the q_4a dataset with the q_1b dataset with a join function. The resulting dataset should only have 47 rows. Create the following new variables in this joined dataset.
+
+```polling_margin```: difference between ```adjpoll_clinton``` and ```adjpoll_trump```
+```actual_margin```: difference between ```clinton``` and ```trump```
+```polling_error```: difference between   ```polling_margin``` and ```actual_margin```
+```predicted_winner```: predicted winner based on ```adjpoll_clinton``` and ```adjpoll_trump```
+```result = ifelse(winner == predicted_winner, "correct prediction", str_c("unexpected ", winner, " win"))```
+Keep only the columns ```state```, polling_error, result, electoral_votes. Name the new dataset q_4b and show its first 6 rows.
+
+```{r label21, echo=TRUE, fig.width=6, fig.height=4}
+q_4b <- q_4a %>%
+  inner_join(q_1b, by = "state") %>% 
+  mutate(
+    polling_margin = adjpoll_clinton - adjpoll_trump,
+    actual_margin = clinton - trump,
+    polling_error = polling_margin - actual_margin,
+    predicted_winner = ifelse(adjpoll_clinton > adjpoll_trump, "clinton", "trump"),
+    result = ifelse(winner == predicted_winner,
+                    "correct prediction",
+                    str_c("unexpected ", winner, " win"))
+  ) %>%
+  select(state, polling_error, result, electoral_votes)
+
+knitr::kable(head(q_4b))
+```
+
+
+#### **4c.** Generate the following plot with the q_4b dataset. Use chunk options to adjust the dimensions of the plot to make it longer than the default dimension. Based on this plot, where did the polls get wrong in the 2016 election?
+
+```{r label22, echo=TRUE, results='asis'}
+library(ggplot2)
+
+ggplot(q_4b, aes(x = polling_error, y = reorder(state, polling_error))) +
+  geom_point(aes(size = electoral_votes, color = result), alpha = 0.7) +
+  scale_color_manual(values = c("correct prediction" = "tomato", 
+                                "unexpected trump win" = "skyblue")) +
+  scale_size(range = c(3, 10)) +
+  labs(
+    x = "Polling Error (percentage points)",
+    y = "State",
+    size = "electoral_votes",
+    color = "result",
+    title = "Polling Errors in the 2016 U.S. Election (Ipsos Polls)"
+  ) +
+  theme_gray(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    axis.text.y = element_text(size = 10)
+  )
+```
